@@ -1,5 +1,6 @@
 import { Header } from "@/components/header"
 import { HeroBanner } from "@/components/hero-banner"
+import { WeatherWidget } from "@/components/weather-widget"
 import { MarathonList } from "@/components/marathon-list"
 import { Footer } from "@/components/footer"
 
@@ -9,6 +10,7 @@ export default function HomePage() {
       <Header />
       <main className="flex-1">
         <HeroBanner />
+        <WeatherWidget />
         <section className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
           <div className="mb-8">
             <h2 className="text-2xl font-bold text-foreground sm:text-3xl">
