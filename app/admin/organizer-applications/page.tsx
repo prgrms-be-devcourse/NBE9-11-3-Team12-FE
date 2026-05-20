@@ -290,7 +290,7 @@ export default function AdminOrganizerApplicationsPage() {
         throw new Error(getErrorMessage(json, "승인 처리에 실패했습니다."))
       }
 
-      setSuccessMessage("주최자 권한 신청을 승인했습니다.")
+      setSuccessMessage("주최자 권한 신청을 승인했습니다. 승인받은 사용자는 권한 반영을 위해 다시 로그인해야 합니다.")
       await loadApplications()
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "승인 처리에 실패했습니다.")
