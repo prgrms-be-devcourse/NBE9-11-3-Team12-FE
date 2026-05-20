@@ -9,6 +9,7 @@ import { Header } from "@/components/header"
 import { Footer } from "@/components/footer"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { API_BASE_URL } from "@/lib/api-base"
 import {
   Card,
   CardContent,
@@ -165,7 +166,7 @@ export default function MyMarathonsPage() {
         ...marathon,
         posterImageUrl:
           marathon.posterImageUrl && marathon.posterImageUrl.startsWith("/")
-            ? `http://localhost:8080${marathon.posterImageUrl}`
+            ? `${API_BASE_URL}${marathon.posterImageUrl}`
             : marathon.posterImageUrl,
       }))
 
