@@ -125,6 +125,15 @@ export function Header() {
               <span className="text-sm font-medium text-foreground">
                 {user?.name}님 환영합니다!
               </span>
+
+              {isParticipant && (
+                <Button variant="secondary" size="sm" asChild>
+                  <Link href="/organizer-applications/apply">
+                    <Trophy className="mr-2 h-4 w-4" />
+                    주최자 권한 신청
+                  </Link>
+                </Button>
+              )}
               <Button variant="ghost" size="sm" asChild>
                 <Link href="/mypage">
                   <User className="mr-2 h-4 w-4" />
@@ -197,6 +206,14 @@ export function Header() {
                   <span className="text-sm font-medium text-foreground px-2 py-1">
                     {user?.name}님 환영합니다!
                   </span>
+                  {isParticipant && (
+                    <Button variant="secondary" size="sm" asChild>
+                      <Link href="/organizer-applications/apply">
+                        <Trophy className="mr-2 h-4 w-4" />
+                        주최자 권한 신청
+                      </Link>
+                    </Button>
+                  )}
                   <Button variant="ghost" size="sm" asChild className="justify-start">
                     <Link href="/mypage" onClick={() => setIsMobileMenuOpen(false)}>
                       <User className="mr-2 h-4 w-4" />
