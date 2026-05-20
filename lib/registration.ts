@@ -1,6 +1,12 @@
+import { fetchWithAuth, unwrapApiResponse } from "@/lib/api-base"
+
 export interface CreateRegistrationReq {
-  marathonId: number
   courseId: number
+  snapZipCode: string
+  snapAddress: string
+  snapDetail?: string
+  tSize: string
+  agreedTerms: boolean
 }
 
 export interface CreateRegistrationRes {
@@ -9,27 +15,19 @@ export interface CreateRegistrationRes {
   marathonTitle: string
   courseId: number
   courseType: string
-  status: string
+  status: "PENDING_PAYMENT" | "COMPLETED" | "CANCELED" | string
+  paymentStatus?: string | null
+  orderId?: string | null
+  amount?: number | null
+  paymentDueAt?: string | null
   appliedAt: string
 }
 
-export async function createRegistration(
-  body: CreateRegistrationReq
-): Promise<CreateRegistrationRes> {
-  const res = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/v1/registrations`, {
+export async function createRegistration(body: CreateRegistrationReq): Promise<CreateRegistrationRes> {
+  const response = await fetchWithAuth("/api/v1/registrations", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    credentials: "include",
     body: JSON.stringify(body),
   })
 
-  const data = await res.json()
-
-  if (!res.ok) {
-    throw new Error(data.message || "접수 실패")
-  }
-
-  return data.data
+  return unwrapApiResponse<CreateRegistrationRes>(response, "접수에 실패했습니다.")
 }

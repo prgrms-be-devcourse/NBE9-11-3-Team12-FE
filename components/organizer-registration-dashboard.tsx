@@ -93,7 +93,10 @@ function formatCourseType(courseType: string) {
 function formatRegistrationStatus(status: string) {
   switch (status) {
     case "ACTIVE":
+    case "COMPLETED":
       return "접수완료"
+    case "PENDING_PAYMENT":
+      return "결제대기"
     case "CANCELED":
       return "취소됨"
     default:

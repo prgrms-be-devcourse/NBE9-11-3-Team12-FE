@@ -1,31 +1,36 @@
-export const API_BASE_URL = "http://localhost:8080"
+export const API_BASE_URL = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8080").replace(/\/$/, "")
+
+export interface ApiResponse<T> {
+  status?: number
+  code: string
+  message?: string
+  data?: T
+}
+
+export function isApiResponse<T = unknown>(value: unknown): value is ApiResponse<T> {
+  return typeof value === "object" && value !== null && "code" in value
+}
+
+export function apiError(message: string, status: number) {
+  return Object.assign(new Error(message), { status })
+}
+
 let reissuePromise: Promise<boolean> | null = null
 
-// 토큰 재발급 함수
 async function reissueToken(): Promise<boolean> {
   try {
     const response = await fetch(`${API_BASE_URL}/api/v1/auth/reissue`, {
       method: "POST",
-      credentials: "include", // 쿠키 포함
+      credentials: "include",
     })
 
-    if (!response.ok) {
-      console.warn("재발급 실패:", response.status)
-      return false
-    }
-
-    return true
-  } catch (error) {
-    console.error("토큰 재발급 에러:", error)
+    return response.ok
+  } catch {
     return false
   }
 }
 
-// 인증 포함 fetch wrapper
-export async function fetchWithAuth(
-  url: string,
-  options: RequestInit = {}
-): Promise<Response> {
+export async function fetchWithAuth(url: string, options: RequestInit = {}): Promise<Response> {
   const fullUrl = url.startsWith("http") ? url : `${API_BASE_URL}${url}`
   const headers = new Headers(options.headers)
   const isFormDataRequest = options.body instanceof FormData
@@ -36,17 +41,15 @@ export async function fetchWithAuth(
     headers.set("Content-Type", "application/json")
   }
 
-  const defaultOptions: RequestInit = {
+  const requestOptions: RequestInit = {
     ...options,
-    credentials: "include", // 쿠키 자동 포함
+    credentials: "include",
     headers,
   }
 
-  let response = await fetch(fullUrl, defaultOptions)
+  let response = await fetch(fullUrl, requestOptions)
 
   if (response.status === 401) {
-    console.warn("Access Token 만료 → 재발급 시도")
-
     if (!reissuePromise) {
       reissuePromise = reissueToken().finally(() => {
         reissuePromise = null
@@ -54,21 +57,50 @@ export async function fetchWithAuth(
     }
 
     const reissued = await reissuePromise
-
     if (reissued) {
-      console.log("토큰 재발급 성공 → 요청 재시도")
-
-      response = await fetch(fullUrl, defaultOptions)
-    } else {
-      console.error("재발급 실패 → 로그인 페이지 이동")
-
-      // if (typeof window !== "undefined") {
-      //   window.location.href = "/login"
-      // }
+      response = await fetch(fullUrl, requestOptions)
     }
   }
 
   return response
+}
+
+export async function readJson<T = unknown>(response: Response): Promise<T | null> {
+  const text = await response.text().catch(() => "")
+  if (!text) return null
+
+  try {
+    return JSON.parse(text) as T
+  } catch {
+    return null
+  }
+}
+
+export async function unwrapApiResponse<T>(response: Response, fallbackMessage: string): Promise<T> {
+  const json = await readJson<unknown>(response)
+
+  if (!response.ok) {
+    const message = isApiResponse(json) && json.message ? json.message : fallbackMessage
+    throw apiError(message, response.status)
+  }
+
+  if (isApiResponse<T>(json)) {
+    if (json.code !== "SUCCESS") {
+      throw apiError(json.message ?? fallbackMessage, response.status)
+    }
+
+    if (json.data === undefined || json.data === null) {
+      throw apiError("응답 데이터가 없습니다.", response.status)
+    }
+
+    return json.data
+  }
+
+  if (json === null || json === undefined) {
+    throw apiError("응답 데이터가 없습니다.", response.status)
+  }
+
+  return json as T
 }
 
 export async function parseResponse<T>(response: Response): Promise<{
@@ -77,27 +109,28 @@ export async function parseResponse<T>(response: Response): Promise<{
   data: T | null
   message: string
 }> {
-  let data: T | null = null
-  let message = ""
+  const json = await readJson<unknown>(response)
 
-  try {
-    const text = await response.text()
-
-    if (text) {
-      const parsed = JSON.parse(text)
-
-      // ApiResponse 구조 대응
-      data = parsed.data ?? parsed
-      message = parsed.message ?? ""
+  if (isApiResponse<T>(json)) {
+    return {
+      ok: response.ok && json.code === "SUCCESS",
+      status: response.status,
+      data: json.data ?? null,
+      message: json.message ?? "",
     }
-  } catch (error) {
-    console.warn("JSON 파싱 실패:", error)
   }
 
   return {
     ok: response.ok,
     status: response.status,
-    data,
-    message,
+    data: (json as T) ?? null,
+    message: "",
   }
+}
+
+export function normalizeAssetUrl(url?: string | null): string | null {
+  if (!url) return null
+  if (/^https?:\/\//i.test(url)) return url
+  if (url.startsWith("/")) return `${API_BASE_URL}${url}`
+  return `${API_BASE_URL}/${url.replace(/^\/+/, "")}`
 }

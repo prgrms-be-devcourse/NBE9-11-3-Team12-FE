@@ -3,17 +3,17 @@
 import { useEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import Script from "next/script"
+import { AlertCircle, FileText, Loader2, MapPin, Shirt } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
-import { fetchWithAuth } from "@/lib/api-base"
-import { MapPin, Shirt, FileText, AlertCircle } from "lucide-react"
+import { createRegistration, CreateRegistrationRes } from "@/lib/registration"
 
-type KakaoPostcodeData = {
+interface KakaoPostcodeData {
   zonecode: string
   address: string
   roadAddress: string
@@ -132,12 +132,15 @@ export function RegistrationForm({ courseId, courseName, marathonTitle }: Regist
           return next
         })
 
-        window.setTimeout(() => {
-          detailInputRef.current?.focus()
-        }, 0)
+        window.setTimeout(() => detailInputRef.current?.focus(), 0)
       },
     }).open()
   }
+
+  const persistRegistration = (registration: CreateRegistrationRes) => {
+    localStorage.setItem("lastRegistration", JSON.stringify(registration))
+  }
+
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -148,52 +151,22 @@ export function RegistrationForm({ courseId, courseName, marathonTitle }: Regist
     setErrors({})
 
     try {
-      const body = {
+      const registration = await createRegistration({
         courseId,
         snapZipCode: form.snapZipCode.trim(),
         snapAddress: form.snapAddress.trim(),
         snapDetail: form.snapDetail.trim(),
         tSize: form.tSize,
         agreedTerms: form.agreedTerms,
-      }
-
-      const response = await fetchWithAuth("/api/v1/registrations", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(body),
       })
 
-      const data = await response.json()
+      persistRegistration(registration)
 
-      if (!response.ok || data.code !== "SUCCESS") {
-        setErrors({
-          general: data.message || "접수에 실패했습니다. 다시 시도해주세요.",
-        })
-        return
-      }
-
-      // 성공 응답 데이터 저장
-      const registrationData = {
-        registrationId: data.data.registrationId,
-        marathonId: data.data.marathonId,
-        marathonTitle: data.data.marathonTitle,
-        courseId: data.data.courseId,
-        courseType: data.data.courseType,
-        status: data.data.status,
-        appliedAt: data.data.appliedAt,
-      }
-      
-      // localStorage에 저장 후 완료 페이지로 이동
-      localStorage.setItem("lastRegistration", JSON.stringify(registrationData))
-      router.push(`/marathons/${data.data.marathonId}/courses/${courseId}/register/complete`)
+      router.push(`/marathons/${registration.marathonId}/courses/${registration.courseId}/register/complete`)
     } catch (error) {
-      console.error("접수 에러:", error)
       setErrors({
-        general: "서버에 연결할 수 없습니다. 잠시 후 다시 시도해주세요.",
+        general: error instanceof Error ? error.message : "접수에 실패했습니다. 다시 시도해주세요.",
       })
-    } finally {
       setIsLoading(false)
     }
   }
@@ -208,7 +181,6 @@ export function RegistrationForm({ courseId, courseName, marathonTitle }: Regist
       />
 
       <form onSubmit={handleSubmit} className="flex flex-col gap-6">
-        {/* 일반 에러 */}
         {errors.general && (
           <div className="flex items-start gap-3 rounded-lg border border-destructive/50 bg-destructive/10 p-4">
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
@@ -216,7 +188,6 @@ export function RegistrationForm({ courseId, courseName, marathonTitle }: Regist
           </div>
         )}
 
-        {/* 대회 정보 */}
         {(marathonTitle || courseName) && (
           <Card className="bg-secondary/50">
             <CardHeader className="pb-3 pt-4">
@@ -224,18 +195,13 @@ export function RegistrationForm({ courseId, courseName, marathonTitle }: Regist
             </CardHeader>
             <CardContent className="pb-4">
               <div className="flex flex-col gap-1">
-                {marathonTitle && (
-                  <p className="text-sm font-medium text-foreground">{marathonTitle}</p>
-                )}
-                {courseName && (
-                  <p className="text-sm text-muted-foreground">코스: {courseName}</p>
-                )}
+                {marathonTitle && <p className="text-sm font-medium text-foreground">{marathonTitle}</p>}
+                {courseName && <p className="text-sm text-muted-foreground">코스: {courseName}</p>}
               </div>
             </CardContent>
           </Card>
         )}
 
-        {/* 배송지 정보 */}
         <Card>
           <CardHeader className="pb-3 pt-5">
             <div className="flex items-center gap-2">
@@ -247,78 +213,65 @@ export function RegistrationForm({ courseId, courseName, marathonTitle }: Regist
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
-          {/* 우편번호 */}
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="snapZipCode">
-              우편번호 <span className="text-destructive">*</span>
-            </Label>
-            <div className="flex gap-2">
-              <Input
-                id="snapZipCode"
-                type="text"
-                placeholder="우편번호"
-                maxLength={5}
-                value={form.snapZipCode}
-                readOnly
-                className={errors.snapZipCode ? "border-destructive" : ""}
-              />
-              <Button
-                type="button"
-                variant="outline"
-                onClick={handleAddressSearch}
-                disabled={!isPostcodeReady}
-                className="shrink-0"
-              >
-                {form.snapAddress ? "주소 다시 검색" : "주소 검색"}
-              </Button>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="snapZipCode">
+                우편번호 <span className="text-destructive">*</span>
+              </Label>
+              <div className="flex gap-2">
+                <Input
+                  id="snapZipCode"
+                  type="text"
+                  placeholder="우편번호"
+                  maxLength={5}
+                  value={form.snapZipCode}
+                  readOnly
+                  className={errors.snapZipCode ? "border-destructive" : ""}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleAddressSearch}
+                  disabled={!isPostcodeReady}
+                  className="shrink-0"
+                >
+                  {form.snapAddress ? "주소 다시 검색" : "주소 검색"}
+                </Button>
+              </div>
+              {errors.snapZipCode && <p className="text-sm text-destructive">{errors.snapZipCode}</p>}
+              {!isPostcodeReady && <p className="text-sm text-muted-foreground">주소 검색 서비스를 불러오는 중입니다.</p>}
             </div>
-            {errors.snapZipCode && (
-              <p className="text-sm text-destructive">{errors.snapZipCode}</p>
-            )}
-            {!isPostcodeReady && (
-              <p className="text-sm text-muted-foreground">
-                주소 검색 서비스를 불러오는 중입니다.
-              </p>
-            )}
-          </div>
 
-          {/* 주소 */}
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="snapAddress">
-              주소 <span className="text-destructive">*</span>
-            </Label>
-            <Input
-              id="snapAddress"
-              type="text"
-              placeholder="기본 주소"
-              value={form.snapAddress}
-              readOnly
-              className={errors.snapAddress ? "border-destructive" : ""}
-            />
-            {errors.snapAddress && (
-              <p className="text-sm text-destructive">{errors.snapAddress}</p>
-            )}
-          </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="snapAddress">
+                주소 <span className="text-destructive">*</span>
+              </Label>
+              <Input
+                id="snapAddress"
+                type="text"
+                placeholder="기본 주소"
+                value={form.snapAddress}
+                readOnly
+                className={errors.snapAddress ? "border-destructive" : ""}
+              />
+              {errors.snapAddress && <p className="text-sm text-destructive">{errors.snapAddress}</p>}
+            </div>
 
-          {/* 상세 주소 */}
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="snapDetail">
-              상세 주소
-              <span className="ml-1 text-xs text-muted-foreground">(선택)</span>
-            </Label>
-            <Input
-              id="snapDetail"
-              type="text"
-              placeholder="예: OO아파트 101동 1001호"
-              ref={detailInputRef}
-              value={form.snapDetail}
-              onChange={(e) => setForm({ ...form, snapDetail: e.target.value })}
-            />
-          </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="snapDetail">
+                상세 주소 <span className="ml-1 text-xs text-muted-foreground">(선택)</span>
+              </Label>
+              <Input
+                id="snapDetail"
+                type="text"
+                placeholder="예: OO아파트 101동 1001호"
+                ref={detailInputRef}
+                value={form.snapDetail}
+                onChange={(e) => setForm({ ...form, snapDetail: e.target.value })}
+              />
+            </div>
           </CardContent>
         </Card>
 
-        {/* 티셔츠 사이즈 */}
         <Card>
           <CardHeader className="pb-3 pt-5">
             <div className="flex items-center gap-2">
@@ -331,14 +284,8 @@ export function RegistrationForm({ courseId, courseName, marathonTitle }: Regist
               <Label htmlFor="tSize">
                 사이즈 선택 <span className="text-destructive">*</span>
               </Label>
-              <Select
-                value={form.tSize}
-                onValueChange={(value) => setForm({ ...form, tSize: value })}
-              >
-                <SelectTrigger
-                  id="tSize"
-                  className={errors.tSize ? "border-destructive" : ""}
-                >
+              <Select value={form.tSize} onValueChange={(value) => setForm({ ...form, tSize: value })}>
+                <SelectTrigger id="tSize" className={errors.tSize ? "border-destructive" : ""}>
                   <SelectValue placeholder="사이즈를 선택해주세요" />
                 </SelectTrigger>
                 <SelectContent>
@@ -349,14 +296,11 @@ export function RegistrationForm({ courseId, courseName, marathonTitle }: Regist
                   ))}
                 </SelectContent>
               </Select>
-              {errors.tSize && (
-                <p className="text-sm text-destructive">{errors.tSize}</p>
-              )}
+              {errors.tSize && <p className="text-sm text-destructive">{errors.tSize}</p>}
             </div>
           </CardContent>
         </Card>
 
-        {/* 이용약관 */}
         <Card>
           <CardHeader className="pb-3 pt-5">
             <div className="flex items-center gap-2">
@@ -365,27 +309,15 @@ export function RegistrationForm({ courseId, courseName, marathonTitle }: Regist
             </div>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
-            <div className="rounded-md border border-border bg-muted/40 p-4 text-sm text-muted-foreground leading-relaxed max-h-40 overflow-y-auto">
-              <p className="font-medium text-foreground mb-2">마라톤 대회 참가 약관</p>
-              <p>
-                본 대회에 참가하기 위해서는 아래의 약관에 동의하셔야 합니다.
-              </p>
+            <div className="max-h-40 overflow-y-auto rounded-md border border-border bg-muted/40 p-4 text-sm leading-relaxed text-muted-foreground">
+              <p className="mb-2 font-medium text-foreground">마라톤 대회 참가 약관</p>
+              <p>본 대회에 참가하기 위해서는 아래의 약관에 동의하셔야 합니다.</p>
               <br />
-              <p>
-                1. 참가자는 대회 참가 전 충분한 준비 운동을 실시해야 합니다.
-              </p>
-              <p>
-                2. 대회 중 발생하는 부상이나 사고에 대해 주최 측은 의료 지원을 제공하나, 참가자 본인의 건강 상태 관리에 대한 책임은 참가자에게 있습니다.
-              </p>
-              <p>
-                3. 참가자는 대회 규정 및 스태프의 지시에 따라야 합니다.
-              </p>
-              <p>
-                4. 접수된 참가비는 취소 및 환불 규정에 따라 처리됩니다.
-              </p>
-              <p>
-                5. 대회 중 촬영된 사진 및 영상은 주최 측의 홍보 목적으로 사용될 수 있습니다.
-              </p>
+              <p>1. 참가자는 대회 참가 전 충분한 준비 운동을 실시해야 합니다.</p>
+              <p>2. 대회 중 발생하는 부상이나 사고에 대해 주최 측은 의료 지원을 제공하나, 참가자 본인의 건강 상태 관리에 대한 책임은 참가자에게 있습니다.</p>
+              <p>3. 참가자는 대회 규정 및 스태프의 지시에 따라야 합니다.</p>
+              <p>4. 접수된 참가비는 취소 및 환불 규정에 따라 처리됩니다.</p>
+              <p>5. 대회 중 촬영된 사진 및 영상은 주최 측의 홍보 목적으로 사용될 수 있습니다.</p>
             </div>
 
             <Separator />
@@ -394,29 +326,28 @@ export function RegistrationForm({ courseId, courseName, marathonTitle }: Regist
               <Checkbox
                 id="agreedTerms"
                 checked={form.agreedTerms}
-                onCheckedChange={(checked) =>
-                  setForm({ ...form, agreedTerms: checked === true })
-                }
+                onCheckedChange={(checked) => setForm({ ...form, agreedTerms: checked === true })}
                 className={errors.agreedTerms ? "border-destructive" : ""}
               />
               <div className="flex flex-col gap-1">
-                <label
-                  htmlFor="agreedTerms"
-                  className="cursor-pointer text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-                >
+                <label htmlFor="agreedTerms" className="cursor-pointer text-sm font-medium leading-none">
                   이용약관에 동의합니다 <span className="text-destructive">*</span>
                 </label>
-                {errors.agreedTerms && (
-                  <p className="text-sm text-destructive">{errors.agreedTerms}</p>
-                )}
+                {errors.agreedTerms && <p className="text-sm text-destructive">{errors.agreedTerms}</p>}
               </div>
             </div>
           </CardContent>
         </Card>
 
-        {/* 제출 버튼 */}
         <Button type="submit" size="lg" className="w-full" disabled={isLoading}>
-          {isLoading ? "접수 중..." : "접수하기"}
+          {isLoading ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              접수 처리 중...
+            </>
+          ) : (
+            "접수하기"
+          )}
         </Button>
       </form>
     </>
