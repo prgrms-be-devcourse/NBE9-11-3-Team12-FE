@@ -1,12 +1,14 @@
-'use client'
+"use client"
 
-import { useEffect, useState } from 'react'
-import { useParams, useRouter } from 'next/navigation'
-import Link from 'next/link'
-import { Check, ArrowLeft, Download } from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Separator } from '@/components/ui/separator'
+import { Suspense, useEffect, useMemo, useRef, useState } from "react"
+import Link from "next/link"
+import { useParams, useRouter, useSearchParams } from "next/navigation"
+import { ArrowLeft, Check, Copy, Loader2, XCircle } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Separator } from "@/components/ui/separator"
+import { confirmPayment } from "@/lib/registration-query"
+import { formatCourseDistance } from "@/lib/marathon-labels"
 
 interface RegistrationData {
   registrationId: number
@@ -15,85 +17,205 @@ interface RegistrationData {
   courseId: number
   courseType: string
   status: string
+  paymentStatus?: string | null
+  orderId?: string | null
+  amount?: number | null
+  paymentDueAt?: string | null
   appliedAt: string
+  approvedAt?: string | null
 }
 
-export default function CompletePage() {
+function formatDateTime(value?: string | null) {
+  if (!value) return "-"
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+
+  return date.toLocaleString("ko-KR", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  })
+}
+
+function formatPrice(value?: number | null) {
+  if (value === null || value === undefined) return "-"
+  return `${value.toLocaleString("ko-KR")}원`
+}
+
+function getRegistrationStatus(status: string) {
+  switch (status) {
+    case "COMPLETED":
+      return { label: "접수 완료", className: "bg-green-100 text-green-800" }
+    case "PENDING_PAYMENT":
+      return { label: "결제 대기", className: "bg-yellow-100 text-yellow-800" }
+    case "CANCELED":
+      return { label: "접수 취소", className: "bg-red-100 text-red-800" }
+    default:
+      return { label: status, className: "bg-gray-100 text-gray-800" }
+  }
+}
+
+function getPaymentStatus(status?: string | null) {
+  switch (status) {
+    case "READY":
+      return "결제 대기"
+    case "DONE":
+      return "결제 완료"
+    case "FAILED":
+      return "결제 실패"
+    case "EXPIRED":
+      return "결제 만료"
+    case "CANCELED":
+      return "결제 취소"
+    case "REFUNDED":
+      return "환불 완료"
+    case null:
+    case undefined:
+      return "결제 없음"
+    default:
+      return status
+  }
+}
+
+function CompletePageContent() {
   const params = useParams()
   const router = useRouter()
-  const marathonId = parseInt(params.id as string)
+  const searchParams = useSearchParams()
+  const confirmStarted = useRef(false)
+
+  const marathonId = Number(params.id)
+  const courseId = Number(params.courseId)
+  const paymentKey = searchParams.get("paymentKey")
+  const orderId = searchParams.get("orderId")
+  const amountParam = searchParams.get("amount")
+  const failCode = searchParams.get("code")
+  const failMessage = searchParams.get("message")
 
   const [registration, setRegistration] = useState<RegistrationData | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [paymentError, setPaymentError] = useState<string | null>(null)
+  const [paymentConfirmed, setPaymentConfirmed] = useState(false)
+
+  const statusBadge = useMemo(() => getRegistrationStatus(registration?.status ?? ""), [registration?.status])
+  const isSuccess = !paymentError && registration?.status === "COMPLETED"
+  const isPendingPayment = registration?.status === "PENDING_PAYMENT"
 
   useEffect(() => {
-    const stored = localStorage.getItem('lastRegistration')
-    if (stored) {
-      try {
-        const data = JSON.parse(stored)
-        setRegistration(data)
-      } catch (error) {
-        console.error('Failed to parse registration data:', error)
-        router.push(`/marathons/${marathonId}`)
-      }
-    } else {
-      router.push(`/marathons/${marathonId}`)
+    const stored = localStorage.getItem("lastRegistration")
+
+    if (!stored) {
+      router.replace(`/marathons/${marathonId}`)
+      return
     }
+
+    try {
+      setRegistration(JSON.parse(stored) as RegistrationData)
+    } catch {
+      router.replace(`/marathons/${marathonId}`)
+      return
+    }
+
+    if (failCode || failMessage) {
+      setPaymentError(failMessage || "결제가 실패했거나 취소되었습니다.")
+      setIsLoading(false)
+      return
+    }
+
+    if (paymentKey && orderId && amountParam) {
+      if (confirmStarted.current) return
+      confirmStarted.current = true
+
+      const amount = Number(amountParam)
+      if (!Number.isFinite(amount) || amount <= 0) {
+        setPaymentError("결제 금액 정보가 올바르지 않습니다.")
+        setIsLoading(false)
+        return
+      }
+
+      confirmPayment({ paymentKey, orderId, amount })
+        .then((result) => {
+          setRegistration((prev) => {
+            const next: RegistrationData = {
+              ...(prev ?? {
+                registrationId: result.registrationId,
+                marathonId,
+                marathonTitle: "",
+                courseId,
+                courseType: "",
+                status: result.registrationStatus,
+                appliedAt: "",
+              }),
+              registrationId: result.registrationId,
+              status: result.registrationStatus,
+              paymentStatus: result.paymentStatus,
+              orderId: result.orderId,
+              amount: result.amount,
+              approvedAt: result.approvedAt,
+            }
+            localStorage.setItem("lastRegistration", JSON.stringify(next))
+            return next
+          })
+          setPaymentConfirmed(true)
+        })
+        .catch((error) => {
+          setPaymentError(error instanceof Error ? error.message : "결제 승인에 실패했습니다.")
+        })
+        .finally(() => setIsLoading(false))
+      return
+    }
+
     setIsLoading(false)
-  }, [marathonId, router])
+  }, [amountParam, courseId, failCode, failMessage, marathonId, orderId, paymentKey, router])
 
   if (isLoading) {
     return (
-      <main className="min-h-screen bg-background flex items-center justify-center">
+      <main className="flex min-h-screen items-center justify-center bg-background">
         <div className="text-center">
-          <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-border border-t-primary" />
-          <p className="mt-4 text-sm text-muted-foreground">처리 중입니다...</p>
+          <Loader2 className="mx-auto h-8 w-8 animate-spin text-primary" />
+          <p className="mt-4 text-sm text-muted-foreground">접수와 결제 상태를 확인하는 중입니다.</p>
         </div>
       </main>
     )
   }
 
-  if (!registration) {
-    return null
-  }
+  if (!registration) return null
 
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString)
-    return date.toLocaleDateString('ko-KR', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    })
-  }
-
-  const getStatusBadge = (status: string) => {
-    const statusMap: Record<string, { label: string; className: string }> = {
-      COMPLETED: { label: '접수 완료', className: 'bg-green-100 text-green-800' },
-      PENDING: { label: '접수 대기중', className: 'bg-yellow-100 text-yellow-800' },
-      CANCELLED: { label: '접수 취소', className: 'bg-red-100 text-red-800' },
-    }
-    return statusMap[status] || { label: status, className: 'bg-gray-100 text-gray-800' }
-  }
-
-  const statusBadge = getStatusBadge(registration.status)
+  const copyContent = `접수 번호: #${registration.registrationId}\n마라톤명: ${registration.marathonTitle}\n코스: ${formatCourseDistance(registration.courseType)}\n상태: ${statusBadge.label}\n결제 상태: ${getPaymentStatus(registration.paymentStatus)}\n접수 일시: ${formatDateTime(registration.appliedAt)}`
 
   return (
     <main className="min-h-screen bg-background">
-      <div className="mx-auto max-w-2xl py-8 px-4">
-        {/* 성공 메시지 */}
+      <div className="mx-auto max-w-2xl px-4 py-8">
         <div className="mb-8">
-          <div className="mx-auto mb-4 h-16 w-16 rounded-full bg-green-100 flex items-center justify-center">
-            <Check className="h-8 w-8 text-green-600" />
+          <div
+            className={`mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full ${paymentError ? "bg-red-100" : "bg-green-100"
+              }`}
+          >
+            {paymentError ? <XCircle className="h-8 w-8 text-red-600" /> : <Check className="h-8 w-8 text-green-600" />}
           </div>
-          <h1 className="text-center text-2xl font-bold mb-2">접수가 완료되었습니다!</h1>
+          <h1 className="mb-2 text-center text-2xl font-bold">
+            {paymentError ? "결제가 완료되지 않았습니다" : paymentConfirmed ? "결제 및 접수가 완료되었습니다" : isPendingPayment ? "접수 신청이 완료되었습니다" : "접수가 완료되었습니다"}
+          </h1>
           <p className="text-center text-muted-foreground">
-            마라톤 대회에 성공적으로 접수되었습니다. 아래 정보를 확인해주세요.
+            {paymentError
+              ? "아래 접수 정보를 확인한 뒤 내 접수 조회에서 결제를 다시 진행할 수 있습니다."
+              : isPendingPayment
+                ? "30분 이내에 결제가 완료되어야 최종 접수 완료 상태가 됩니다."
+                : "아래 접수 정보를 확인해주세요."}
           </p>
         </div>
 
-        {/* 접수 정보 */}
+        {paymentError && (
+          <Card className="mb-6 border-red-200 bg-red-50/60">
+            <CardContent className="p-4 text-sm text-red-800">
+              <p className="font-semibold">결제 오류</p>
+              <p className="mt-1">{paymentError}</p>
+              {failCode && <p className="mt-1 text-xs text-red-700">오류 코드: {failCode}</p>}
+            </CardContent>
+          </Card>
+        )}
+
         <Card className="mb-8 border-green-200 bg-green-50/50">
           <CardHeader>
             <CardTitle className="text-lg">접수 정보</CardTitle>
@@ -101,16 +223,12 @@ export default function CompletePage() {
           <CardContent className="flex flex-col gap-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <p className="text-sm text-muted-foreground mb-1">접수 번호</p>
-                <p className="text-lg font-bold text-foreground">
-                  #{registration.registrationId}
-                </p>
+                <p className="mb-1 text-sm text-muted-foreground">접수 번호</p>
+                <p className="text-lg font-bold text-foreground">#{registration.registrationId}</p>
               </div>
               <div>
-                <p className="text-sm text-muted-foreground mb-1">상태</p>
-                <div
-                  className={`inline-block px-3 py-1 rounded-full text-sm font-medium ${statusBadge.className}`}
-                >
+                <p className="mb-1 text-sm text-muted-foreground">접수 상태</p>
+                <div className={`inline-block rounded-full px-3 py-1 text-sm font-medium ${statusBadge.className}`}>
                   {statusBadge.label}
                 </div>
               </div>
@@ -120,89 +238,104 @@ export default function CompletePage() {
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <p className="text-sm text-muted-foreground mb-1">마라톤명</p>
+                <p className="mb-1 text-sm text-muted-foreground">마라톤명</p>
                 <p className="font-medium text-foreground">{registration.marathonTitle}</p>
               </div>
               <div>
-                <p className="text-sm text-muted-foreground mb-1">코스 타입</p>
-                <p className="font-medium text-foreground">{registration.courseType}</p>
+                <p className="mb-1 text-sm text-muted-foreground">코스</p>
+                <p className="font-medium text-foreground">{formatCourseDistance(registration.courseType)}</p>
+              </div>
+            </div>
+
+            <Separator />
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <p className="mb-1 text-sm text-muted-foreground">결제 상태</p>
+                <p className="font-medium text-foreground">{getPaymentStatus(registration.paymentStatus)}</p>
+              </div>
+              <div>
+                <p className="mb-1 text-sm text-muted-foreground">결제 금액</p>
+                <p className="font-medium text-foreground">{formatPrice(registration.amount)}</p>
               </div>
             </div>
 
             <Separator />
 
             <div>
-              <p className="text-sm text-muted-foreground mb-1">접수 일시</p>
-              <p className="font-medium text-foreground">
-                {formatDate(registration.appliedAt)}
-              </p>
+              <p className="mb-1 text-sm text-muted-foreground">접수 일시</p>
+              <p className="font-medium text-foreground">{formatDateTime(registration.appliedAt)}</p>
             </div>
+
+            <Separator />
+
+            {registration.status === "COMPLETED" ? (
+              registration.approvedAt && (
+                <div>
+                  <p className="mb-1 text-sm text-muted-foreground">결제 승인 일시</p>
+                  <p className="font-medium text-foreground">{formatDateTime(registration.approvedAt)}</p>
+                </div>
+              )
+            ) : (
+              registration.paymentDueAt && (
+                <div>
+                  <p className="mb-1 text-sm text-muted-foreground">결제 만료 시각</p>
+                  <p className="font-medium text-foreground">{formatDateTime(registration.paymentDueAt)}</p>
+                </div>
+              )
+            )}
           </CardContent>
         </Card>
 
-        {/* 안내 메시지 */}
         <Card className="mb-8">
           <CardHeader>
             <CardTitle className="text-base">다음 단계</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
             <div className="flex gap-3">
-              <div className="text-xl font-bold text-primary shrink-0">1</div>
+              <div className="shrink-0 text-xl font-bold text-primary">1</div>
               <div>
-                <p className="font-medium text-sm">입력하신 주소로 참가 물품 배송</p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  대회 1주일 전까지 입력하신 주소로 티셔츠 및 참가 물품이 배송됩니다.
-                </p>
+                <p className="text-sm font-medium">내 접수 조회에서 상태 확인</p>
+                <p className="mt-1 text-xs text-muted-foreground">접수, 결제, 취소 상태는 마이페이지에서 다시 확인할 수 있습니다.</p>
               </div>
             </div>
             <div className="flex gap-3">
-              <div className="text-xl font-bold text-primary shrink-0">2</div>
+              <div className="shrink-0 text-xl font-bold text-primary">2</div>
               <div>
-                <p className="font-medium text-sm">대회 당일 현장 등록</p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  대회 당일 현장에서 접수 번호를 제시하고 최종 등록을 완료해주세요.
-                </p>
+                <p className="text-sm font-medium">참가 물품 배송</p>
+                <p className="mt-1 text-xs text-muted-foreground">입력하신 배송지로 티셔츠 및 참가 물품이 배송됩니다.</p>
               </div>
             </div>
             <div className="flex gap-3">
-              <div className="text-xl font-bold text-primary shrink-0">3</div>
+              <div className="shrink-0 text-xl font-bold text-primary">3</div>
               <div>
-                <p className="font-medium text-sm">즐거운 마라톤 참여</p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  안전하고 건강하게 대회를 즐기시기 바랍니다!
-                </p>
+                <p className="text-sm font-medium">대회 당일 현장 등록</p>
+                <p className="mt-1 text-xs text-muted-foreground">현장에서 접수 번호를 제시하고 최종 등록을 완료해주세요.</p>
               </div>
             </div>
           </CardContent>
         </Card>
 
-        {/* 버튼 그룹 */}
-        <div className="flex flex-col gap-3 sm:flex-row sm:gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row">
           <Button
             variant="outline"
             className="flex-1"
-            onClick={() => {
-              const content = `접수 번호: #${registration.registrationId}\n마라톤명: ${registration.marathonTitle}\n코스 타입: ${registration.courseType}\n상태: ${statusBadge.label}\n접수 일시: ${formatDate(registration.appliedAt)}`
-              navigator.clipboard.writeText(content)
-            }}
+            onClick={() => void navigator.clipboard.writeText(copyContent)}
           >
-            <Download className="mr-2 h-4 w-4" />
+            <Copy className="mr-2 h-4 w-4" />
             접수 정보 복사
           </Button>
-          <Link href={`/marathons/${marathonId}`} className="flex-1">
-            <Button variant="outline" className="w-full">
+          <Button variant="outline" className="flex-1" asChild>
+            <Link href={`/marathons/${marathonId}`}>
               <ArrowLeft className="mr-2 h-4 w-4" />
-              대회 상세 정보 보기
-            </Button>
-          </Link>
-          <Link href="/mypage/registrations" className="flex-1">
-            <Button className="w-full">
-              내 접수 조회
-            </Button>
-          </Link>
+              대회 상세 보기
+            </Link>
+          </Button>
+          <Button className="flex-1" asChild>
+            <Link href="/mypage/registrations">내 접수 조회</Link>
+          </Button>
         </div>
 
-        {/* 하단 링크 */}
         <div className="mt-8 text-center">
           <Link href="/" className="text-sm text-primary hover:underline">
             홈으로 돌아가기
@@ -210,5 +343,23 @@ export default function CompletePage() {
         </div>
       </div>
     </main>
+  )
+}
+function CompletePageFallback() {
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-background">
+      <div className="text-center">
+        <Loader2 className="mx-auto h-8 w-8 animate-spin text-primary" />
+        <p className="mt-4 text-sm text-muted-foreground">접수 결과 페이지를 불러오는 중입니다.</p>
+      </div>
+    </main>
+  )
+}
+
+export default function CompletePage() {
+  return (
+    <Suspense fallback={<CompletePageFallback />}>
+      <CompletePageContent />
+    </Suspense>
   )
 }

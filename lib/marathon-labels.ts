@@ -1,4 +1,3 @@
-/** 등록 폼·API region enum 공통 라벨 */
 export const REGION_LABELS: Record<string, string> = {
   SEOUL: "서울",
   GYEONGGI: "경기",
@@ -20,7 +19,9 @@ export const REGION_LABELS: Record<string, string> = {
 }
 
 export const COURSE_DISTANCE_LABELS: Record<string, string> = {
+  "5K": "5km",
   "5KM": "5km",
+  "10K": "10km",
   "10KM": "10km",
   HALF: "하프 (21.0975km)",
   FULL: "풀코스 (42.195km)",
@@ -30,30 +31,50 @@ export function formatRegion(region: string): string {
   return REGION_LABELS[region] ?? region
 }
 
-export function formatCourseDistance(distance: string): string {
+export function formatCourseDistance(distance?: string | null): string {
+  if (!distance) return "코스 미정"
   return COURSE_DISTANCE_LABELS[distance] ?? distance
 }
 
-export type MarathonUiStatus = "접수중" | "접수예정" | "접수마감"
+export type MarathonUiStatus = "접수중" | "접수예정" | "접수마감" | "취소됨"
 
-/**
- * 백엔드 `MarathonStatus` enum 직렬화 이름과 맞추세요.
- * (이름이 다르면 여기에 case만 추가하면 됩니다.)
- */
-export function marathonStatusToUi(status: string): MarathonUiStatus {
+export function marathonStatusToUi(status?: string | null): MarathonUiStatus {
   switch (status) {
-    case "REGISTRATION_OPEN":
     case "OPEN":
+    case "REGISTRATION_OPEN":
       return "접수중"
+    case "TEMP":
+    case "UPCOMING":
     case "REGISTRATION_UPCOMING":
     case "REGISTRATION_NOT_STARTED":
-    case "UPCOMING":
       return "접수예정"
+    case "CANCELING":
+    case "CANCELED":
+      return "취소됨"
+    case "FULL":
+    case "CLOSED":
     case "REGISTRATION_CLOSED":
     case "EVENT_ENDED":
-    case "CLOSED":
-      return "접수마감"
     default:
       return "접수마감"
+  }
+}
+
+export function normalizeCourseType(courseType?: string | null): string {
+  if (!courseType) return ""
+  const normalized = courseType.trim().toUpperCase()
+
+  switch (normalized) {
+    case "5KM":
+      return "5K"
+    case "10KM":
+      return "10K"
+    case "HALF_MARATHON":
+      return "HALF"
+    case "MARATHON":
+    case "FULL_MARATHON":
+      return "FULL"
+    default:
+      return normalized
   }
 }

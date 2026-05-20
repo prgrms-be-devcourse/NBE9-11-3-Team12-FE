@@ -1,10 +1,4 @@
-import { fetchWithAuth } from "@/lib/api-base"
-
-export interface ApiEnvelope<T> {
-  code: string
-  message?: string
-  data?: T
-}
+import { fetchWithAuth, unwrapApiResponse } from "@/lib/api-base"
 
 export interface PageRes {
   page: number
@@ -20,7 +14,17 @@ export interface MyRegistrationItem {
   marathonTitle: string | null
   courseId: number | null
   courseType: string | null
-  status: string
+  status: "PENDING_PAYMENT" | "COMPLETED" | "CANCELED" | string
+  paymentStatus: string | null
+  orderId: string | null
+  amount: number | null
+  paymentDueAt: string | null
+  approvedAt?: string | null
+  refundedAt?: string | null
+  refundReason?: string | null
+  failCode?: string | null
+  failMessage?: string | null
+  canPay: boolean
   price: number | null
   eventDate: string | null
   snapName: string | null
@@ -88,40 +92,25 @@ export interface RegistrationParticipantDetailRes {
   snapPhoneNumber: string
   snapZipCode: string
   snapAddress: string
-  snapDetail: string
+  snapDetail: string | null
   tSize: string
   agreedTerms: boolean
   appliedAt: string
 }
 
-export function isApiEnvelope<T>(value: unknown): value is ApiEnvelope<T> {
-  return typeof value === "object" && value !== null && "code" in value
+export interface ConfirmPaymentReq {
+  paymentKey: string
+  orderId: string
+  amount: number
 }
 
-async function unwrapResponse<T>(response: Response, fallbackMessage: string): Promise<T> {
-  const json: unknown = await response.json().catch(() => ({}))
-
-  if (!response.ok) {
-    if (isApiEnvelope<T>(json) && json.message) {
-      throw Object.assign(new Error(json.message), { status: response.status })
-    }
-
-    throw Object.assign(new Error(fallbackMessage), { status: response.status })
-  }
-
-  if (isApiEnvelope<T>(json)) {
-    if (json.code !== "SUCCESS") {
-      throw new Error(json.message ?? fallbackMessage)
-    }
-
-    if (json.data === undefined || json.data === null) {
-      throw new Error("응답 데이터가 없습니다.")
-    }
-
-    return json.data
-  }
-
-  return json as T
+export interface ConfirmPaymentRes {
+  registrationId: number
+  registrationStatus: "PENDING_PAYMENT" | "COMPLETED" | "CANCELED" | string
+  orderId: string
+  amount: number
+  paymentStatus: string
+  approvedAt: string | null
 }
 
 export async function fetchMyRegistrations(params: {
@@ -139,7 +128,26 @@ export async function fetchMyRegistrations(params: {
     method: "GET",
   })
 
-  return unwrapResponse<MyRegistrationListRes>(response, "내 접수 내역을 불러오지 못했습니다.")
+  return unwrapApiResponse<MyRegistrationListRes>(response, "내 접수 내역을 불러오지 못했습니다.")
+}
+
+export async function cancelMyRegistration(registrationId: number) {
+  const response = await fetchWithAuth(`/api/v1/registrations/${registrationId}`, {
+    method: "DELETE",
+  })
+
+  if (!response.ok) {
+    await unwrapApiResponse<void>(response, "접수 취소에 실패했습니다.")
+  }
+}
+
+export async function confirmPayment(body: ConfirmPaymentReq) {
+  const response = await fetchWithAuth("/api/v1/payments/confirm", {
+    method: "POST",
+    body: JSON.stringify(body),
+  })
+
+  return unwrapApiResponse<ConfirmPaymentRes>(response, "결제 승인에 실패했습니다.")
 }
 
 export async function fetchRegistrationOverview(marathonId: string) {
@@ -147,7 +155,7 @@ export async function fetchRegistrationOverview(marathonId: string) {
     method: "GET",
   })
 
-  return unwrapResponse<RegistrationOverviewRes>(response, "접수 요약 정보를 불러오지 못했습니다.")
+  return unwrapApiResponse<RegistrationOverviewRes>(response, "접수 요약 정보를 불러오지 못했습니다.")
 }
 
 export async function fetchRegistrationParticipants(params: {
@@ -175,7 +183,7 @@ export async function fetchRegistrationParticipants(params: {
     { method: "GET" }
   )
 
-  return unwrapResponse<RegistrationParticipantListRes>(response, "참가자 목록을 불러오지 못했습니다.")
+  return unwrapApiResponse<RegistrationParticipantListRes>(response, "참가자 목록을 불러오지 못했습니다.")
 }
 
 export async function fetchRegistrationParticipantDetail(marathonId: string, registrationId: number) {
@@ -184,35 +192,5 @@ export async function fetchRegistrationParticipantDetail(marathonId: string, reg
     { method: "GET" }
   )
 
-  return unwrapResponse<RegistrationParticipantDetailRes>(response, "참가자 상세 정보를 불러오지 못했습니다.")
-}
-
-// export async function cancelMyRegistration(registrationId: number) {
-//   const response = await fetchWithAuth(`/api/v1/registrations/${registrationId}`, {
-//     method: "DELETE",
-//   })
-
-//   return unwrapResponse<void>(response, "접수 취소에 실패했습니다.")
-// }
-
-export async function cancelMyRegistration(registrationId: number) {
-  const response = await fetchWithAuth(`/api/v1/registrations/${registrationId}`, {
-    method: "DELETE",
-  })
-
-  const json: unknown = await response.json().catch(() => ({}))
-
-  if (!response.ok) {
-    if (isApiEnvelope<void>(json) && json.message) {
-      throw Object.assign(new Error(json.message), { status: response.status })
-    }
-
-    throw Object.assign(new Error("접수 취소에 실패했습니다."), { status: response.status })
-  }
-
-  if (isApiEnvelope<void>(json) && json.code !== "SUCCESS") {
-    throw new Error(json.message ?? "접수 취소에 실패했습니다.")
-  }
-
-  return
+  return unwrapApiResponse<RegistrationParticipantDetailRes>(response, "참가자 상세 정보를 불러오지 못했습니다.")
 }
