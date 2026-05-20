@@ -5,7 +5,7 @@ import { useState, useEffect } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
-import { User, LogOut, Menu, X, Trophy } from "lucide-react"
+import { User, LogOut, Menu, X, Trophy, ShieldCheck } from "lucide-react"
 import { fetchWithAuth } from "@/lib/api-base"
 
 
@@ -75,7 +75,8 @@ export function Header() {
   }
 
   const isLoggedIn = !!user
-  const isOrganizerOrAdmin = user?.role === "ORGANIZER" || user?.role === "ADMIN"
+  const isAdmin = user?.role === "ADMIN"
+  const isOrganizerOrAdmin = user?.role === "ORGANIZER" || isAdmin
   const isParticipant = isLoggedIn && !isOrganizerOrAdmin
 
   return (
@@ -110,6 +111,12 @@ export function Header() {
             </>
           )}
 
+          {isAdmin && (
+            <Link href="/admin/organizer-applications" className="text-sm font-medium text-muted-foreground transition-colors hover:text-primary">
+              관리자
+            </Link>
+          )}
+
           {/* 참가자 전용 */}
           {isParticipant && (
             <Link href="/mypage/registrations" className="text-sm font-medium text-muted-foreground transition-colors hover:text-primary">
@@ -131,6 +138,14 @@ export function Header() {
                   <Link href="/organizer-applications/apply">
                     <Trophy className="mr-2 h-4 w-4" />
                     주최자 권한 신청
+                  </Link>
+                </Button>
+              )}
+              {isAdmin && (
+                <Button variant="secondary" size="sm" asChild>
+                  <Link href="/admin/organizer-applications">
+                    <ShieldCheck className="mr-2 h-4 w-4" />
+                    관리자
                   </Link>
                 </Button>
               )}
@@ -193,6 +208,12 @@ export function Header() {
               </>
             )}
 
+            {isAdmin && (
+              <Link href="/admin/organizer-applications" className="text-sm font-medium text-foreground" onClick={() => setIsMobileMenuOpen(false)}>
+                관리자
+              </Link>
+            )}
+
             {/* 참가자 전용 */}
             {isParticipant && (
               <Link href="/mypage/registrations" className="text-sm font-medium text-foreground" onClick={() => setIsMobileMenuOpen(false)}>
@@ -211,6 +232,14 @@ export function Header() {
                       <Link href="/organizer-applications/apply">
                         <Trophy className="mr-2 h-4 w-4" />
                         주최자 권한 신청
+                      </Link>
+                    </Button>
+                  )}
+                  {isAdmin && (
+                    <Button variant="secondary" size="sm" asChild className="justify-start">
+                      <Link href="/admin/organizer-applications" onClick={() => setIsMobileMenuOpen(false)}>
+                        <ShieldCheck className="mr-2 h-4 w-4" />
+                        관리자
                       </Link>
                     </Button>
                   )}
